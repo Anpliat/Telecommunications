@@ -78,8 +78,7 @@ WHERE EXTRACT(YEAR from CallStart)=2018
 GROUP BY EXTRACT(MONTH from CallStart)
 ORDER BY EXTRACT(MONTH from CallStart);
 
-#### Comment: We created two “view” Tables.  One for the Duration of calls made in 2017 and second one  #for the Duration of calls made in 2018.
-
+#### Comment: We created two “view” Tables, one for the Duration of calls made in 2017 and second one for the Duration of calls made in 2018.
 SELECT duration_2017.Months,ROUND(100*(Total_Duration2018-Total_Duration2017)/Total_Duration2017,2) as 'percentage change','%'
 FROM duration_2017
 JOIN duration_2018 
@@ -232,11 +231,3 @@ sumpop15<-fetch(rs,n=-1)
 pin13<-cbind(pin1,pop_ratio)
 colnames(pin13)<-c('Cityid','Duration_ratio','Population_ratio')
 pin13
-
-
-
-
-
-
-
-
