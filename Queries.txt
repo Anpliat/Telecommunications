@@ -1,0 +1,242 @@
+# a. Show the call id of all calls that were made between 8am and 10am on June 2018 having duration < 30
+SELECT CallId FROM Calls
+WHERE DATE_FORMAT(CallStart,'%H:%i') between '08:00' and '10:00'
+and EXTRACT(MONTH from CallStart) = '06' 
+and EXTRACT(YEAR from CallStart) = '2018' 
+and duration < 30;
+
+
+# b. Show the first and last name of customers that live in a city with population greater than 20000
+SELECT FirstName,LastName FROM Customer as Cust
+JOIN City
+ON Cust.CityID = City.CityID
+WHERE Population>20000;
+
+
+# c. Show the customer id that have a contract in the plan with name like ‘Freedom’
+select CustomerId, FirstName from Customer
+where CustomerId in
+(select CustomerId from Contracts where PlanId in
+(select PlanId from Plan where PlanName like "%Freedom%")); 
+
+
+# d. For each contract that ends in less than sixty days from today, show the contract id, the phone number, the customer’s id, his/her first name and his/her last name
+SELECT Contracts.ContractId, PhoneNumber, Contracts.CustomerId, FirstName, LastName
+FROM Contracts
+JOIN Customer as Cust
+ON Cust.CustomerId = Contracts.CustomerId  
+where DATEDIFF(EndingDate, CURDATE())<60;
+
+
+# e. For each contract id and each month of 2018, show the average duration of calls
+SELECT ContractId, EXTRACT(MONTH from CallStart) as Month_,ROUND(AVG(Duration),2) as Average_Duration
+FROM Calls
+JOIN Contracts
+ON Calls.PhoneNumber = contracts.PhoneNumber
+WHERE EXTRACT(YEAR from CallStart)='2018'
+GROUP BY ContractId, Month_
+order by ContractId;  
+
+
+# f. Show the total duration of calls in 2018 per plan id
+SELECT Plan.PlanId,SUM(Duration) as Total_Duration
+FROM Calls
+JOIN Contracts ON Calls.PhoneNumber = Contracts.PhoneNumber
+JOIN Plan ON Plan.PlanId = Contracts.PlanId
+WHERE EXTRACT(YEAR from CallStart)='2018'
+GROUP BY PlanId
+ORDER BY Total_Duration DESC;
+
+
+# g. Show the top called number among TP’s customers in 2018
+SELECT  CalledNumber  as top_called_number #, count(*) as Received_Calls
+from Calls
+WHERE EXTRACT(YEAR from CallStart) = '2018'
+group by CalledNumber
+ORDER BY count(*) DESC
+limit 1; 
+
+
+# h. Show the contract ids and the months where the total duration of the calls was greater than the free minutes offered by the plan of the contract
+SELECT ContractId, EXTRACT(MONTH from CallStart) as Month_, Plan.Minutes, SUM(Duration) as Total_Duration
+FROM Calls
+JOIN Contracts ON Calls.PhoneNumber = Contracts.PhoneNumber
+JOIN Plan ON Contracts.PlanId = Plan.PlanId
+GROUP BY Month_, Plan.Minutes
+HAVING Total_Duration > Plan.Minutes;
+
+
+# i. For each month of 2018, show the percentage change of the total duration of calls compared to the same month of 2017
+CREATE VIEW duration_2017(Months,Total_Duration2017) AS
+SELECT EXTRACT(MONTH from CallStart),SUM(Duration) FROM Calls
+WHERE EXTRACT(YEAR from CallStart)=2017
+GROUP BY EXTRACT(MONTH from CallStart)
+ORDER BY EXTRACT(MONTH from CallStart);
+CREATE VIEW duration_2018(Months,Total_Duration2018) AS
+SELECT EXTRACT(MONTH from CallStart),SUM(Duration) FROM Calls
+WHERE EXTRACT(YEAR from CallStart)=2018
+GROUP BY EXTRACT(MONTH from CallStart)
+ORDER BY EXTRACT(MONTH from CallStart);
+
+#### Comment: We created two “view” Tables.  One for the Duration of calls made in 2017 and second one  #for the Duration of calls made in 2018.
+
+SELECT duration_2017.Months,ROUND(100*(Total_Duration2018-Total_Duration2017)/Total_Duration2017,2) as 'percentage change','%'
+FROM duration_2017
+JOIN duration_2018 
+ON duration_2017.Months=duration_2018.Months;
+
+
+# j. For each city id and calls made in 2018, show the average call duration by females and the average call duration by males
+select IF(Customer.Gender='M','Male','Female') AS 'Gender', c.CityId, ROUND(AVG(Duration),2) as 'avg_duration'
+from Calls
+Join Contracts on Calls.PhoneNumber = Contracts.PhoneNumber
+Join Customer on Customer.CustomerId = Contracts.CustomerId
+join City as c on c.CityId = Customer.CityId
+WHERE EXTRACT(YEAR from CallStart)=2018
+GROUP BY Gender, c.CityId
+ORDER BY CityId;
+
+# k. For each city id, show the city id, the ratio of the total duration of the calls made from customers staying in that city in 2018 over the total duration of all calls made in 2018, and the ratio of the city’s population over the total population of all cities
+select a.City_Id as Id, (a.sum_per_city / b.total_sum) as Dur_ratio, (Population/d.Pop_sum) as Pop_ratio
+from City, (select c.CityId as City_Id, sum(Duration) as sum_per_city from Calls
+				Join Contracts on Calls.PhoneNumber = Contracts.PhoneNumber
+				Join Customer on Customer.CustomerId = Contracts.CustomerId
+				join City as c on c.CityId = Customer.CityId
+                			WHERE EXTRACT(YEAR from CallStart)=2018
+				group by c.CityId) as a, 
+       (select sum(Duration) as total_sum from Calls WHERE EXTRACT(YEAR from CallStart)=2018) as b,
+       (select sum(Population) as Pop_sum from City ) as d
+where a.City_Id = City.CityId
+group by a.City_Id;
+
+
+# ---------------------------------------------------------------------------------------------------
+
+# Implementation of query (k) in R programming language - without using GROUP BY SQL statements
+
+##################################
+#########  1st solution  #########
+##################################
+library(RMySQL);
+mydb = dbConnect(MySQL(), user = 'root', password = 'your_password', dbname = 'assignment1', host = 'localhost')
+rs = dbSendQuery(mydb,"select * from City")
+city = fetch(rs,n=-1)
+City_Id = city$CityId
+Population_Ratio = city$Population/sum(city$Population)
+rs = dbSendQuery(mydb,"select c.CityId as City_Id, Duration from Calls 
+                 Join Contracts on Calls.PhoneNumber = Contracts.PhoneNumber 
+                 Join Customer on Customer.CustomerId = Contracts.CustomerId 
+                 Join City as c on c.CityId = Customer.CityId 
+                 WHERE EXTRACT(YEAR from CallStart)=2018") 
+CallsDurWithCity = fetch(rs, n=-1)
+CallsPerCity = by(CallsDurWithCity$Duration, CallsDurWithCity$City_Id, sum);CallsPerCity
+CallsPerCity = as.numeric(CallsPerCity)
+y = sum(CallsPerCity)
+fun1 = function(x){
+  return(x/y)
+}
+Duration_Ratio = tapply(CallsPerCity, 1:length(CallsPerCity), fun1)
+finalData = cbind(City_Id, Duration_Ratio, Population_Ratio)
+finalData
+
+##################################
+#########  2nd solution  #########
+##################################
+
+#### 1st step: Connect to the database and create all the different tables/relations
+install.packages("RMySQL")
+library(RMySQL)
+mydb = dbConnect(MySQL(), user = 'root', password = 'your_password', dbname = 'assignment1', host = 'localhost')
+# City table
+rs<-dbSendQuery(mydb,"select * from City")
+city<-fetch(rs,n=-1)
+city ; str(city)
+# Customer table
+rs<-dbSendQuery(mydb,"select * from Customer")
+customer<-fetch(rs,n=-1)
+# Plan table
+rs<-dbSendQuery(mydb,"select * from Plan")
+plan<-fetch(rs,n=-1)
+# Contracts table
+rs<-dbSendQuery(mydb,"select * from Contracts")
+contracts<-fetch(rs,n=-1)
+# Calls table
+rs<-dbSendQuery(mydb,"select * from Calls")
+calls<-fetch(rs,n=-1)
+
+
+
+#### 2nd step: Create type of Joins similar to SQL in R
+join<-function(x,y,z){
+  df<-data.frame()
+  for (i in 1:dim(x)[1]){   
+    cond<-x[,z][i]==y[,z] & substr(calls$CallStart[i], start=1, stop=4)=='2018'
+    if (any(cond)){
+      temp<-cbind(y[cond,],x$Duration[i])
+      df<-rbind(df,temp) }
+  }
+  colnames(df)[length(names(df))]<-"Duration"
+  df }
+join1<-function(x,y,z){
+  df<-data.frame()
+  for (i in 1:dim(x)[1]){   
+    cond<-x[,z][i]==y[,z]
+    if (any(cond)){
+      temp<-cbind(y[cond,],x$Duration[i])
+      df<-rbind(df,temp) }
+  }
+  colnames(df)[length(names(df))]<-"Duration"
+  df }
+
+df1<-join(calls,contracts,"PhoneNumber")
+df2<-join1(df1,customer,"CustomerId")
+df3<-join1(df2,city,"CityId")
+# order them by CityId
+df3<-df3[order(df3$CityId),] 
+df3
+
+
+#### 3rd step: Replicate the effect of  ‘group by’ command from SQL in R
+# For each city id, show the ratio of the total duration of the calls made from customers #staying in that city in 2018
+results<-rep(0,length(unique(df3$CityId)))
+for (i in 1:length(unique(df3$CityId))){ 
+  if (sum(unique(df3$CityId)[i]==df3$CityId)>1){      #if it has more than 1 values (it’s duplicated)
+    results[i]<-sum(df3$Duration[df3$CityId==i])
+  }else{                   
+    results[i]<-df3$Duration[unique(df3$CityId)[i]==df3$CityId]  }
+}
+results
+
+
+#### 4th step: Computations
+# Over the total duration of all calls made in 2018
+
+##### 1st way
+total_sum<-sum(calls$Duration[substr(calls$CallStart, start=1, stop=4)=='2018'])
+dur_ratio<-round(results/total_sum,4)
+pin1<-cbind(unique(df3$CityId),dur_ratio) 
+##### 2nd way
+query1<-"select sum(Duration) from Calls WHERE EXTRACT(YEAR from CallStart)=2018"
+rs<-dbSendQuery(mydb,query1)
+sum15<-fetch(rs,n=-1)
+
+# The ratio of the city’s population over the total population of all cities
+##### 1st way
+pop_ratio<-round(city$Population/sum(city$Population),4)
+pop_ratio<-pop_ratio[city$CityId%in%pin1[,1]] 
+##### 2nd way
+rs<-dbSendQuery(mydb,"select sum(Population) as Pop_sum from City")
+sumpop15<-fetch(rs,n=-1)
+
+## Implemantation of query (i.e. For each city id, show the city id,and the 2 ratios)
+pin13<-cbind(pin1,pop_ratio)
+colnames(pin13)<-c('Cityid','Duration_ratio','Population_ratio')
+pin13
+
+
+
+
+
+
+
+
